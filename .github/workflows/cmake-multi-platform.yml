@@ -1,5 +1,5 @@
 # This GitHub Actions workflow builds and tests the nanoGPT-C++ project on multiple platforms.
-# It manually downloads and caches a recent, stable CPU version of LibTorch for reliability.
+# It manually downloads a stable CPU version of LibTorch for reliability.
 name: C++ CI
 
 on:
@@ -26,8 +26,7 @@ jobs:
     - name: Install LibTorch (CPU version)
       shell: bash
       run: |
-        # Using a fixed, recent, stable version is more reliable for CI than 'latest',
-        # as PyPI versions can be ahead of available LibTorch builds.
+        # Using a fixed, recent, stable version is more reliable for CI.
         PYTORCH_VERSION="2.4.0"
 
         # Construct the correct URL based on the runner's OS
@@ -59,7 +58,10 @@ jobs:
     - run: |
         echo "Cloning original nanoGPT repo to prepare data..."
         git clone https://github.com/karpathy/nanoGPT.git
-        pip install -r nanoGPT/requirements.txt
+        
+        # CRITICAL FIX: Install the required packages directly as there is no requirements.txt
+        pip install numpy requests tiktoken datasets
+        
         python nanoGPT/data/shakespeare_char/prepare.py
         echo "Copying prepared data into project..."
         mkdir -p data
