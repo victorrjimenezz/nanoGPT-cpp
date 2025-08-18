@@ -1,0 +1,11 @@
+[project]
+name = "nanogptcpp"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=2.2.6",
+    "requests>=2.32.4",
+    "tiktoken>=0.11.0",
+]
