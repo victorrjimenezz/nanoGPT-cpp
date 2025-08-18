@@ -1,0 +1,73 @@
+# This GitHub Actions workflow builds and tests the nanoGPT-C++ project on multiple platforms.
+# It automatically downloads and caches the latest stable CPU version of LibTorch.
+name: C++ CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    # Run on Ubuntu, Windows, and macOS
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        build_type: [Release]
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install Latest LibTorch (CPU version)
+      # This action finds, downloads, and caches the latest LibTorch version for each OS.
+      # It sets the LIBTORCH_ROOT environment variable.
+      uses: atalays/setup-libtorch@v1
+      with:
+        pytorch-version: 'latest'
+        variant: 'cpu'
+
+    - name: Setup Python and Prepare Dataset
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+    - run: |
+        echo "Cloning original nanoGPT repo to prepare data..."
+        git clone https://github.com/karpathy/nanoGPT.git
+        pip install -r nanoGPT/requirements.txt
+        python nanoGPT/data/shakespeare_char/prepare.py
+        echo "Copying prepared data into project..."
+        mkdir -p data
+        cp -r nanoGPT/data/shakespeare_char ./data/
+        ls -R data
+
+    - name: Download cxxopts header
+      shell: bash
+      run: |
+        mkdir -p src
+        curl -L -o src/cxxopts.hpp https://raw.githubusercontent.com/jarro2783/cxxopts/master/include/cxxopts.hpp
+        echo "cxxopts.hpp downloaded."
+
+    - name: Configure CMake
+      # We use the LIBTORCH_ROOT environment variable set by the setup-libtorch action.
+      run: >
+        cmake -B build
+        -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+        -DCMAKE_PREFIX_PATH=${{ env.LIBTORCH_ROOT }}
+        -S ${{ github.workspace }}
+
+    - name: Build
+      run: cmake --build build --config ${{ matrix.build_type }}
+
+    - name: Run Smoke Test
+      working-directory: build
+      run: |
+        if [[ "${{ runner.os }}" == "Windows" ]]; then
+          ./Release/nanogpt_cpp.exe --mode=train --max_iters=10 --device=cpu --eval_iters=5
+        else
+          ./nanogpt_cpp --mode=train --max_iters=10 --device=cpu --eval_iters=5
+        fi
