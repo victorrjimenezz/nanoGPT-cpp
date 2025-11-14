@@ -43,7 +43,16 @@
 .idea/**/usage.statistics.xml
 .idea/**/dictionaries
 .idea/**/shelf
-
+	data/shakespeare/input.txt
+	data/shakespeare/train.bin
+	data/shakespeare/val.bin
+	data/shakespeare_char/input.txt
+	data/shakespeare_char/meta.pkl
+	data/shakespeare_char/train.bin
+	data/shakespeare_char/val.bin
+	out-shakespeare-char-cpp-10min/
+	out-shakespeare-char-cpp/
+	venv/
 # AWS User-specific
 .idea/**/aws.xml
 
@@ -127,3 +136,23 @@ CTestTestfile.cmake
 _deps
 
 .python-version
+
+
+### Data files
+data/shakespeare/input.txt
+data/shakespeare/train.bin
+data/shakespeare/val.bin
+data/shakespeare_char/input.txt
+data/shakespeare_char/meta.pkl
+data/shakespeare_char/train.bin
+data/shakespeare_char/val.bin
+
+### Output files
+out-shakespeare-char-cpp-10min/
+out-shakespeare-char-cpp/
+
+### Virtual environment
+venv/
+
+### VSCode
+.vscode
