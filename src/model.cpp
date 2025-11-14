@@ -42,29 +42,39 @@ torch::Tensor CausalSelfAttentionImpl::forward(const torch::Tensor &x) {
     auto T = x.size(1);
     auto C = x.size(2);
 
-    const auto qkv = c_attn->forward(x);
-    const auto qkv_s = qkv.split(n_embd, 2);
-    auto q = qkv_s[0];
-    auto k = qkv_s[1];
-    auto v = qkv_s[2];
+    auto qkv = c_attn->forward(x).split(/* split_size */n_embd, /* dim */2);
+    torch::Tensor q = qkv[0];
+    torch::Tensor k = qkv[1];
+    torch::Tensor v = qkv[2];
 
     q = q.view({B, T, n_head, C / n_head}).transpose(1, 2);
     k = k.view({B, T, n_head, C / n_head}).transpose(1, 2);
     v = v.view({B, T, n_head, C / n_head}).transpose(1, 2);
 
     torch::Tensor y;
+    // causal self-attention; Self-attend: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
     if (flash) {
         // Disabled for compatibility
     } else {
-        auto att = (q.matmul(k.transpose(-2, -1))) * (1.0 / std::sqrt(k.size(-1)));
-        att = att.masked_fill(bias.slice(2, 0, T).slice(3, 0, T) == 0, -std::numeric_limits<float>::infinity());
-        att = torch::nn::functional::softmax(att, -1);
+        // manual implementation of attention
+        torch::Tensor att = (q.matmul(k.transpose(-2, -1))) * (1.0 / std::sqrt(k.size(-1)));
+        att = att.masked_fill(
+            bias.index({torch::indexing::Slice(), 
+                       torch::indexing::Slice(), 
+                       torch::indexing::Slice(0, T), 
+                       torch::indexing::Slice(0, T)}) == 0,
+            -std::numeric_limits<float>::infinity()
+        );
+        att = torch::softmax(att, /* dim */-1);
         att = attn_dropout->forward(att);
-        y = att.matmul(v);
+        y = att.matmul(v);  // (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
     }
-
-    y = y.transpose(1, 2).contiguous().view({B, T, C});
+    
+    y = y.transpose(1, 2).contiguous().view({B, T, C});  // re-assemble all head outputs side by side
+    
+    // output projection
     y = resid_dropout->forward(c_proj->forward(y));
+    
     return y;
 }
 
@@ -176,23 +186,36 @@ std::pair<torch::Tensor, torch::Tensor> GPTImpl::forward(const torch::Tensor &id
     return {logits, loss};
 }
 
-torch::Tensor GPTImpl::generate(torch::Tensor idx, const int max_new_tokens, double const temperature,
-                                int const top_k) {
-    for (int i = 0; i < max_new_tokens; ++i) {
-        auto idx_cond = idx.size(1) <= config.block_size ? idx : idx.slice(1, idx.size(1) - config.block_size);
-        auto outputs = this->forward(idx_cond);
-        auto logits = std::get<0>(outputs);
-        logits = logits.slice(1, -1).squeeze(1) / temperature;
-
-        if (top_k > 0) {
+torch::Tensor GPTImpl::generate(torch::Tensor idx, const int max_new_tokens, double const temperature, int const top_k) {
+    for (int64_t i = 0; i < max_new_tokens; ++i) {
+        // if the sequence context is growing too long we must crop it at block_size
+        torch::Tensor idx_cond;
+        idx_cond = (idx.size(1) <= config.block_size) ? idx : idx.index({torch::indexing::Slice(), torch::indexing::Slice(-config.block_size, torch::indexing::None)});
+        
+        // forward the model to get the logits for the index in the sequence
+        auto [logits, _] = forward(idx_cond);
+        
+        // pluck the logits at the final step and scale by desired temperature
+        logits = logits.index({torch::indexing::Slice(), -1, torch::indexing::Slice()}) / temperature;
+        
+        // optionally crop the logits to only the top k options
+        if (top_k > 0)
+        {
             auto topk_res = torch::topk(logits, std::min(static_cast<int64_t>(top_k), logits.size(-1)));
             auto topk_vals = std::get<0>(topk_res);
-            logits.masked_fill_(logits < topk_vals.slice(1, -1), -std::numeric_limits<float>::infinity());
-        }
+            logits.masked_fill_(logits < topk_vals.index({torch::indexing::Slice(), -1}).unsqueeze(-1), -std::numeric_limits<float>::infinity());
 
-        auto probs = torch::nn::functional::softmax(logits, -1);
-        auto idx_next = torch::multinomial(probs, 1);
-        idx = torch::cat({idx, idx_next}, 1);
+        }
+        
+        // apply softmax to convert logits to (normalized) probabilities
+        torch::Tensor probs = torch::softmax(logits, /* dim */-1);
+        
+        // sample from the distribution
+        torch::Tensor idx_next = torch::multinomial(probs, /* num_samples */1);
+        
+        // append sampled index to the running sequence and continue
+        idx = torch::cat({idx, idx_next}, /* dim */1);
     }
+    
     return idx;
 }
