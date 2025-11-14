@@ -186,7 +186,7 @@ int main(int argc, char **argv) {
         model->to(device);
         model->eval();
 
-        std::string chars = " \n!$&',-.3:;?ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+        std::string chars = "\n !$&',-.3:;?ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
         std::map<char, int> stoi;
         std::map<int, char> itos;
         for (size_t i = 0; i < chars.length(); ++i) {
